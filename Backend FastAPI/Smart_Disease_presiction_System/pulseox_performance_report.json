@@ -1,0 +1,55 @@
+{
+  "dataset_info": {
+    "total_samples": 24900,
+    "train_samples": 17430,
+    "val_samples": 3735,
+    "test_samples": 3735,
+    "features_used": 27,
+    "targets": [
+      "Asthma_Exacerbation_Risk",
+      "COPD_Risk",
+      "Pneumonia_Risk",
+      "COVID_Like_Risk",
+      "Anemia_Risk"
+    ]
+  },
+  "model_info": {
+    "ensemble_weights": {
+      "Random Forest": 0.33400509525077,
+      "XGBoost": 0.33041180273014187,
+      "MLP": 0.33558310201908814
+    },
+    "feature_columns": [
+      "Age",
+      "SpO2",
+      "HeartRate",
+      "PerfusionIndex",
+      "Temperature",
+      "PulseVariability",
+      "Cough",
+      "Shortness_of_Breath",
+      "Chest_Pain",
+      "Fatigue",
+      "Dizziness",
+      "Nausea",
+      "Confusion",
+      "Sore_Throat",
+      "Runny_Nose",
+      "Age_Group",
+      "HR_Zone",
+      "SpO2_Zone",
+      "Oxygenation_Score",
+      "Perfusion_Score",
+      "Temperature_Score",
+      "Respiratory_Symptom_Cluster",
+      "Systemic_Symptom_Cluster",
+      "Cardiac_Symptom_Cluster",
+      "Age_SpO2_Interaction",
+      "HR_Temp_Interaction",
+      "PI_Age_Interaction"
+    ]
+  },
+  "performance": {
+    "test_accuracy": 0.9453815261044177,
+    "test_f1": 0.7887082105664793,
+    "target_achieved": true}

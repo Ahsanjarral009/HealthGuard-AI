@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors (Medical Blue Theme) -->
+    <color name="primary">#2D6AFF</color>
+    <color name="primary_light">#7BA4FF</color>
+    <color name="primary_dark">#004AD4</color>
+
+    <!-- Secondary Colors (Health Green) -->
+    <color name="secondary">#00C896</color>
+    <color name="secondary_dark">#009670</color>
+    <color name="green_primary">#4CAF50</color> <!-- Used for title and CTA button -->
+    <color name="green_light">#C8E6C9</color>
+    <color name="blue_gradient_light">#A9D1E9</color>
+    <color name="blue_gradient_dark">#2196F3</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+
+    <!-- Background Colors -->
+
+    <color name="background">#F8F9FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="card_background">#FFFFFF</color>
+    <color name="surface_container_low">#F7F2FA</color>
+    <color name="outline_variant">#BDBDBD</color>
+    <!-- Text Colors -->
+    <color name="text_primary">#1A202C</color>
+    <color name="text_secondary">#718096</color>
+    <color name="text_disabled">#A0AEC0</color>
+
+    <!-- Status Colors -->
+    <color name="success">#38A169</color>
+    <color name="warning">#D69E2E</color>
+    <color name="error">#E53E3E</color>
+    <color name="info">#3182CE</color>
+
+    <!-- Risk Level Colors -->
+    <color name="risk_low">#38A169</color>
+    <color name="risk_medium">#D69E2E</color>
+    <color name="risk_high">#E53E3E</color>
+    <color name="risk_critical">#9B2C2C</color>
+
+    <!-- Gradient Colors -->
+    <color name="gradient_start">#2D6AFF</color>
+    <color name="gradient_end">#00C896</color>
+
+
+    <color name="gray_light">#F5F5F5</color>
+    <color name="warning_light">#FFF3E0</color>
+    <color name="error_light">#FFEBEE</color>
+    <color name="success_light">#E8F5E9</color>
+    <!-- Tab Colors -->
+    <color name="selected_tab_bg">@color/primary</color>
+    <color name="surface_container_lowest">#FFFFFF</color>
+    <color name="warning_container">#FFF3E0</color>
+
+
+
+    <color name="surface_variant">#E8E8E8</color>
+
+    <!-- Text Colors -->
+
+
+    <!-- Card Colors -->
+    <color name="card_stroke">#E2E8F0</color>
+
+
+    <color name="card_stroke_light">#EDF2F7</color>
+
+
+
+
+</resources>
