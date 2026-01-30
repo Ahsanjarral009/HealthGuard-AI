@@ -821,5 +821,6 @@ if __name__ == "__main__":
         reload=True,  # Disable in production
         log_level="info"
     )
+    print("API is running at http://0.0.0.0:8000")
 
   
