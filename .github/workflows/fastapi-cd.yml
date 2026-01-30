@@ -21,6 +21,14 @@ jobs:
         cache: 'pip'
         cache-dependency-path: 'Backend/requirements.txt'
     
+    # -----------------------------------------------------------
+    # ✅ NEW STEP: Install Linux Drivers for pyodbc
+    # -----------------------------------------------------------
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unixodbc-dev
+    
     - name: Install dependencies
       run: |
         cd Backend
@@ -40,7 +48,6 @@ jobs:
         cd Backend
         python -c "
         try:
-            # FIXED: Importing from 'fastapi_app' instead of 'main'
             from fastapi_app import app
             print('✅ FastAPI app can be imported successfully')
         except Exception as e:
@@ -73,6 +80,14 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           SRC_DIR="$APP_DIR/Backend"
           
+          # Ensure system dependencies are installed on the SERVER too
+          # (Optional: Only needed if your EC2 doesn't have them yet)
+          if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
+              echo "🔧 Installing ODBC drivers on Server..."
+              sudo apt-get update
+              sudo apt-get install -y unixodbc-dev
+          fi
+          
           sudo mkdir -p "$BACKUP_DIR"
           sudo mkdir -p "$APP_DIR"
           
@@ -85,7 +100,6 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           
-          # Copy backend files
           rsync -av --delete \
             --exclude='.env' \
             --exclude='*.db' \
@@ -97,7 +111,6 @@ jobs:
             cp .env.example .env
           fi
           
-          # Setup Venv
           if [ ! -d "venv" ]; then
             python3 -m venv venv
           fi
@@ -106,9 +119,6 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           
-          # ---------------------------------------------------------
-          # FIXED: Updated 'ExecStart' to use 'fastapi_app:app'
-          # ---------------------------------------------------------
           echo "🔧 Creating systemd service..."
           sudo tee /etc/systemd/system/fastapi.service > /dev/null <<EOF
           [Unit]
@@ -120,7 +130,6 @@ jobs:
           Group=www-data
           WorkingDirectory=$APP_DIR
           Environment="PATH=$APP_DIR/venv/bin"
-          # CHANGED BELOW: main:app -> fastapi_app:app
           ExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
           Restart=always
           RestartSec=5
@@ -139,7 +148,7 @@ jobs:
           if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
             echo "✅ Health check passed"
           else
-            echo "❌ Health check failed - Service did not start correctly"
+            echo "❌ Health check failed"
             sudo journalctl -u fastapi.service -n 50 --no-pager
             exit 1
           fi
