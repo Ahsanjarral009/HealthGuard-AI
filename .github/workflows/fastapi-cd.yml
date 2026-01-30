@@ -112,7 +112,7 @@ jobs:
           pip install -r Backend/requirements.txt
           
           # -------------------------------------------------------------
-          # ✅ FIX 1: Ensure .env is inside Backend folder
+          # FIX 1: Ensure .env is inside Backend folder
           # -------------------------------------------------------------
           if [ -f ".env.example" ]; then
             echo "🔧 Setting up .env file..."
@@ -121,40 +121,38 @@ jobs:
           fi
           
           # -------------------------------------------------------------
-          # ✅ FIX 2: DRY RUN - Print Real Errors to Console
+          # FIX 2: DRY RUN (Corruption Proof)
+          # We write the script to a file 'diag.py' first, then run it.
           # -------------------------------------------------------------
           echo "🕵️ STARTING DRY RUN DIAGNOSTIC..."
-          echo "   This will try to start your app for 5 seconds to catch crashes."
           
           cd "$APP_DIR/Backend"
           export PYTHONPATH=$APP_DIR/Backend
           
-          # Try to import the app manually. If this fails, we see the specific error.
-          python3 -c "
-          import sys
-          import os
-          try:
-              print('   Attempting to import fastapi_app...')
-              from fastapi_app import app
-              print('   ✅ SUCCESS: App imported successfully!')
-          except Exception as e:
-              print(f'   ❌ CRITICAL ERROR: {e}')
-              import traceback
-              traceback.print_exc()
-              sys.exit(1)
-          "
+          # Create the python script safely
+          printf "import sys\nimport os\ntry:\n    from fastapi_app import app\n    print('✅ SUCCESS: App imported successfully!')\nexcept Exception as e:\n    print(f'❌ CRITICAL ERROR: {e}')\n    import traceback\n    traceback.print_exc()\n    sys.exit(1)\n" > diag.py
+          
+          # Run the script
+          python3 diag.py
+          
+          # Clean up
+          rm diag.py
+          
           echo "   Dry run passed. Proceeding to Service Start..."
           
-          # 5. Create Service
+          # 5. Create Service (Using printf to prevent corruption)
           echo "🔧 Creating systemd service..."
           
-          # Safe printf to avoid file corruption
           sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
           
           sudo systemctl daemon-reload
           sudo systemctl restart fastapi.service
           
           sleep 5
+          
+          # Debug: Show file content to confirm it is clean
+          echo "📄 Service File Content:"
+          cat /etc/systemd/system/fastapi.service
           
           sudo systemctl status fastapi.service --no-pager | head -20
           
