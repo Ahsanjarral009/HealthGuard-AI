@@ -84,28 +84,33 @@ jobs:
           
           # 2. Fix Permissions & Clean Broken State
           sudo mkdir -p "$BACKUP_DIR"
-          sudo mkdir -p "$APP_DIR"
-          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
-          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
           
-          # If the folder exists but .git is missing (caused by the previous crash), wipe it.
+          # Check for broken state (folder exists but no .git)
           if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
              echo "⚠️ Detected broken repository. Wiping and re-cloning..."
-             rm -rf "$APP_DIR"
-             mkdir -p "$APP_DIR"
+             # FIXED: Added sudo here because /var/www is owned by root
+             sudo rm -rf "$APP_DIR"
           fi
+          
+          # Create directory if it was deleted or didn't exist
+          sudo mkdir -p "$APP_DIR"
+          
+          # FIXED: Apply permissions AFTER creating/wiping
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
           
           cd "$APP_DIR"
           
           # 3. Clone or Pull
+          # Fix for "dubious ownership" error in Git
+          git config --global --add safe.directory "$APP_DIR"
+          
           if [ ! -d ".git" ]; then
-            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
+            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git
           fi
           
           git fetch origin
           git reset --hard origin/main
-          
-          # ⚠️ REMOVED RSYNC: We do NOT move files anymore. We run them where they are.
           
           # 4. Setup Python Environment
           if [ ! -f ".env" ] && [ -f ".env.example" ]; then
