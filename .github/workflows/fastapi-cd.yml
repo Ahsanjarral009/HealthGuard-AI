@@ -51,145 +51,108 @@ jobs:
             exit(1)
         "
 
-  # Update the deploy job in your workflow:
-deploy:
-  runs-on: ubuntu-latest
-  needs: test
-  if: success()
-  
-  steps:
-  - uses: actions/checkout@v4
-  
-  - name: Deploy to EC2
-    uses: appleboy/ssh-action@v1.0.0
-    with:
-      host: ${{ secrets.EC2_HOST }}
-      username: ${{ secrets.EC2_USER }}
-      key: ${{ secrets.EC2_SSH_KEY }}
-      script_stop: true
-      timeout: 300s
-      script: |
-        set -e
-        
-        DEPLOY_USER=ubuntu
-        APP_DIR="/var/www/fastapi-app"
-        BACKUP_DIR="/var/www/backups"
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        
-        # 1. Install System Drivers
-        if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
-            echo "🔧 Installing ODBC drivers..."
-            sudo apt-get update
-            sudo apt-get install -y unixodbc-dev
-        fi
-        
-        # 2. Fix Permissions & Clean Broken State
-        sudo mkdir -p "$BACKUP_DIR"
-        
-        # Check for nested folder error
-        if [ -d "$APP_DIR/HealthGuard-AI" ]; then
-           echo "⚠️ Detected nested folder. Wiping..."
-           sudo rm -rf "$APP_DIR"
-        fi
-
-        # Check for broken repository
-        if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
-           echo "⚠️ Detected broken repository. Wiping..."
-           sudo rm -rf "$APP_DIR"
-        fi
-        
-        sudo mkdir -p "$APP_DIR"
-        sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
-        sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
-        
-        cd "$APP_DIR"
-        
-        # 3. Clone or Pull
-        git config --global --add safe.directory "$APP_DIR"
-        
-        if [ ! -d ".git" ]; then
-          echo "📥 Cloning repository..."
-          git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
-        fi
-        
-        git fetch origin
-        git reset --hard origin/main
-        
-        # 4. Setup Python Environment
-        if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-          cp .env.example .env
-        fi
-        
-        if [ ! -d "venv" ]; then
-          python3 -m venv venv
-        fi
-        
-        source venv/bin/activate
-        pip install --upgrade pip
-        pip install -r Backend/requirements.txt
-        
-        # 5. Create Service - FIXED APPROACH
-        echo "🔧 Creating systemd service..."
-        
-        # Create service file using cat with heredoc (prevents injection)
-        sudo bash -c "cat > /etc/systemd/system/fastapi.service" <<EOF
-[Unit]
-Description=FastAPI Application
-After=network.target
-
-[Service]
-User=$DEPLOY_USER
-Group=www-data
-WorkingDirectory=$APP_DIR/Backend
-Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        
-        sudo systemctl daemon-reload
-        sudo systemctl enable fastapi.service
-        sudo systemctl restart fastapi.service
-        
-        sleep 10
-        
-        echo "📄 Verifying Service File Content:"
-        sudo cat /etc/systemd/system/fastapi.service
-        echo "---------------------------------"
-        
-        sudo systemctl status fastapi.service --no-pager
-        
-        # Wait a bit more and check health
-        echo "🩺 Performing health check..."
-        sleep 5
-        
-        if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
-          echo "✅ Health check passed"
-        else
-          echo "❌ Health check failed - checking service logs..."
-          sudo journalctl -u fastapi.service -n 100 --no-pager
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: success()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script_stop: true
+        timeout: 300s
+        script: |
+          set -e
           
-          # Additional debugging
-          echo "🔍 Checking if app exists..."
-          ls -la $APP_DIR/Backend/fastapi_app.py || echo "fastapi_app.py not found!"
+          DEPLOY_USER=ubuntu
+          APP_DIR="/var/www/fastapi-app"
+          BACKUP_DIR="/var/www/backups"
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
-          echo "🔍 Checking Python installation..."
-          $APP_DIR/venv/bin/python -c "import fastapi; print('FastAPI version:', fastapi.__version__)"
+          # 1. Install System Drivers
+          if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
+              echo "🔧 Installing ODBC drivers..."
+              sudo apt-get update
+              sudo apt-get install -y unixodbc-dev
+          fi
           
-          echo "🔍 Trying to run app manually..."
-          cd $APP_DIR/Backend
-          timeout 10 $APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 &
+          # 2. Fix Permissions & Clean Broken State
+          sudo mkdir -p "$BACKUP_DIR"
+          
+          # Clean up previous broken folders
+          if [ -d "$APP_DIR/HealthGuard-AI" ]; then
+             sudo rm -rf "$APP_DIR"
+          fi
+          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
+             sudo rm -rf "$APP_DIR"
+          fi
+          
+          sudo mkdir -p "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
+          
+          cd "$APP_DIR"
+          
+          # 3. Clone or Pull
+          git config --global --add safe.directory "$APP_DIR"
+          
+          if [ ! -d ".git" ]; then
+            echo "📥 Cloning repository..."
+            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
+          fi
+          
+          git fetch origin
+          git reset --hard origin/main
+          
+          # 4. Setup Python Environment
+          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+            cp .env.example .env
+          fi
+          
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
+          
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r Backend/requirements.txt
+          
+          # 5. Create Service (FIXED: Using single-line printf to prevent corruption)
+          echo "🔧 Creating systemd service..."
+          
+          # ⚠️ This format is safe from injection
+          sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
+          
+          sudo systemctl daemon-reload
+          sudo systemctl restart fastapi.service
+          
           sleep 5
           
+          # Debug: Show file content to confirm it is clean
+          echo "📄 Service File Content:"
+          cat /etc/systemd/system/fastapi.service
+          
+          sudo systemctl status fastapi.service --no-pager | head -20
+          
           if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
-            echo "✅ Manual health check passed"
-            kill %1
+            echo "✅ Health check passed"
           else
-            echo "❌ Manual health check also failed"
-            kill %1 2>/dev/null || true
+            echo "❌ Health check failed"
+            sudo journalctl -u fastapi.service -n 50 --no-pager
             exit 1
           fi
+
+    - name: Send deployment notification
+      if: always()
+      run: |
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
         fi
