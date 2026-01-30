@@ -85,28 +85,31 @@ jobs:
           # 2. Fix Permissions & Clean Broken State
           sudo mkdir -p "$BACKUP_DIR"
           
+          # Check if we have a broken subfolder from the last failed run
+          if [ -d "$APP_DIR/HealthGuard-AI" ]; then
+             echo "⚠️ Detected nested folder from previous error. Wiping..."
+             sudo rm -rf "$APP_DIR"
+          fi
+
           # Check for broken state (folder exists but no .git)
           if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
              echo "⚠️ Detected broken repository. Wiping and re-cloning..."
-             # FIXED: Added sudo here because /var/www is owned by root
              sudo rm -rf "$APP_DIR"
           fi
           
-          # Create directory if it was deleted or didn't exist
           sudo mkdir -p "$APP_DIR"
-          
-          # FIXED: Apply permissions AFTER creating/wiping
           sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
           sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
           
           cd "$APP_DIR"
           
           # 3. Clone or Pull
-          # Fix for "dubious ownership" error in Git
           git config --global --add safe.directory "$APP_DIR"
           
           if [ ! -d ".git" ]; then
-            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git
+            echo "📥 Cloning repository..."
+            # FIXED: Added the dot (.) at the end so it clones HERE, not in a subfolder
+            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
           fi
           
           git fetch origin
@@ -123,7 +126,6 @@ jobs:
           
           source venv/bin/activate
           pip install --upgrade pip
-          # Point to the requirements inside Backend folder
           pip install -r Backend/requirements.txt
           
           # 5. Create Service
@@ -136,10 +138,8 @@ jobs:
           [Service]
           User=$DEPLOY_USER
           Group=www-data
-          # IMPORTANT: We set the working directory to the Backend folder
           WorkingDirectory=$APP_DIR/Backend
           Environment="PATH=$APP_DIR/venv/bin"
-          # ExecStart points to the venv in the root
           ExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
           Restart=always
           RestartSec=5
