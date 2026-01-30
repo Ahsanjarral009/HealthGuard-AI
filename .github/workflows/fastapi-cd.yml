@@ -121,8 +121,7 @@ jobs:
           fi
           
           # -------------------------------------------------------------
-          # FIX 2: DRY RUN (Corruption Proof)
-          # We write the script to a file 'diag.py' first, then run it.
+          # FIX 2: DRY RUN (Diagnostic)
           # -------------------------------------------------------------
           echo "🕵️ STARTING DRY RUN DIAGNOSTIC..."
           
@@ -134,23 +133,22 @@ jobs:
           
           # Run the script
           python3 diag.py
-          
-          # Clean up
           rm diag.py
           
           echo "   Dry run passed. Proceeding to Service Start..."
           
-          # 5. Create Service (Using printf to prevent corruption)
+          # 5. Create Service
+          # ✅ CRITICAL FIX: Added PYTHONPATH to Environment so Systemd can find the modules
           echo "🔧 Creating systemd service..."
           
-          sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
+          sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nEnvironment=\"PYTHONPATH=$APP_DIR/Backend\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
           
           sudo systemctl daemon-reload
           sudo systemctl restart fastapi.service
           
           sleep 5
           
-          # Debug: Show file content to confirm it is clean
+          # Debug: Show file content
           echo "📄 Service File Content:"
           cat /etc/systemd/system/fastapi.service
           
