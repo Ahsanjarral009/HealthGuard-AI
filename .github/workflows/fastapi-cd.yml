@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'Backend/**' 
+      - 'Backend/**'
       - '.github/workflows/fastapi-cd.yml'
 
 jobs:
@@ -19,8 +19,7 @@ jobs:
       with:
         python-version: '3.11'
         cache: 'pip'
-        # FIXED: Path matches your image
-        cache-dependency-path: 'Backend/requirements.txt' 
+        cache-dependency-path: 'Backend/requirements.txt'
     
     - name: Install dependencies
       run: |
@@ -33,7 +32,7 @@ jobs:
         if [ -d "tests" ]; then
           python -m pytest tests/ -v
         else
-          echo "No tests directory found, skipping..."
+          echo "No tests directory found"
         fi
     
     - name: Validate FastAPI app
@@ -41,7 +40,8 @@ jobs:
         cd Backend
         python -c "
         try:
-            from main import app
+            # FIXED: Importing from 'fastapi_app' instead of 'main'
+            from fastapi_app import app
             print('✅ FastAPI app can be imported successfully')
         except Exception as e:
             print(f'❌ Import error: {e}')
@@ -71,33 +71,21 @@ jobs:
           APP_DIR="/var/www/fastapi-app"
           BACKUP_DIR="/var/www/backups"
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          
-          # FIXED: Updated to match your new folder structure
-          SRC_DIR="$APP_DIR/Backend" 
+          SRC_DIR="$APP_DIR/Backend"
           
           sudo mkdir -p "$BACKUP_DIR"
           sudo mkdir -p "$APP_DIR"
           
           cd "$APP_DIR"
           
-          # Clone or Fetch
           if [ ! -d ".git" ]; then
-            echo "📥 Cloning repository..."
             git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
           fi
           
           git fetch origin
           git reset --hard origin/main
           
-          echo "📦 Backing up current application..."
-          sudo tar -czf "$BACKUP_DIR/app-backup-$TIMESTAMP.tar.gz" \
-            --exclude='venv' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            -C "$APP_DIR" .
-          
-          echo "📂 Copying backend files to root..."
-          # This moves files from Backend/ to the root of the app dir
+          # Copy backend files
           rsync -av --delete \
             --exclude='.env' \
             --exclude='*.db' \
@@ -109,7 +97,7 @@ jobs:
             cp .env.example .env
           fi
           
-          echo "🔧 Setting up virtual environment..."
+          # Setup Venv
           if [ ! -d "venv" ]; then
             python3 -m venv venv
           fi
@@ -118,19 +106,40 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           
-          echo "🔧 Restarting Service..."
-          # Assuming service is already created. 
-          # If you need to recreate the service file every time, keep your previous EOF block here.
-          
+          # ---------------------------------------------------------
+          # FIXED: Updated 'ExecStart' to use 'fastapi_app:app'
+          # ---------------------------------------------------------
+          echo "🔧 Creating systemd service..."
+          sudo tee /etc/systemd/system/fastapi.service > /dev/null <<EOF
+          [Unit]
+          Description=FastAPI Application
+          After=network.target
+
+          [Service]
+          User=$DEPLOY_USER
+          Group=www-data
+          WorkingDirectory=$APP_DIR
+          Environment="PATH=$APP_DIR/venv/bin"
+          # CHANGED BELOW: main:app -> fastapi_app:app
+          ExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
           sudo systemctl daemon-reload
           sudo systemctl restart fastapi.service
           
           sleep 5
           
+          sudo systemctl status fastapi.service --no-pager | head -20
+          
           if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
             echo "✅ Health check passed"
           else
-            echo "❌ Health check failed"
+            echo "❌ Health check failed - Service did not start correctly"
             sudo journalctl -u fastapi.service -n 50 --no-pager
             exit 1
           fi
