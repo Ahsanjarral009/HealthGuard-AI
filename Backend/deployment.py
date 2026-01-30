@@ -2,42 +2,52 @@
 import joblib
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 class PulseOxRiskPredictor:
     """
     Production-ready risk prediction model for pulse oximetry data
     """
     
-    def __init__(self, model_path='.'):
+    def __init__(self, model_path=None):
         """
         Initialize the predictor by loading all trained models
-        
+
         Args:
-            model_path: Path to directory containing model files
+            model_path: Optional path to directory containing model files
         """
         print("Loading Pulse Oximetry Risk Prediction Model...")
-        
+
         try:
+            # Resolve base directory (where this file lives)
+            if model_path:
+                base_dir = Path(model_path).resolve()
+            else:
+                base_dir = Path(__file__).resolve().parent
+
             # Load all model components
-            self.final_model = joblib.load(r'C:\Users\DELL\Downloads\archive\Smart_Disease_presiction_System\pulseox_final_model.pkl')
-            self.scaler = joblib.load(r'C:\Users\DELL\Downloads\archive\Smart_Disease_presiction_System\pulseox_scaler.pkl')
-            self.rf_model = joblib.load(r'C:\Users\DELL\Downloads\archive\Smart_Disease_presiction_System\pulseox_rf_model.pkl')
-            self.xgb_models = joblib.load(r'C:\Users\DELL\Downloads\archive\Smart_Disease_presiction_System\pulseox_xgb_models.pkl')
-            self.mlp_model = joblib.load(r'C:\Users\DELL\Downloads\archive\Smart_Disease_presiction_System\pulseox_mlp_model.pkl')
-            
+            self.final_model = joblib.load(base_dir / "pulseox_final_model.pkl")
+            self.scaler = joblib.load(base_dir / "pulseox_scaler.pkl")
+            self.rf_model = joblib.load(base_dir / "pulseox_rf_model.pkl")
+            self.xgb_models = joblib.load(base_dir / "pulseox_xgb_models.pkl")
+            self.mlp_model = joblib.load(base_dir / "pulseox_mlp_model.pkl")
+
             # Extract configuration
-            self.weights = np.array(self.final_model['weights'])
-            self.feature_columns = self.final_model['feature_columns']
-            self.risk_columns = self.final_model['risk_columns']
-            
-            print(f"✅ Model loaded successfully!")
+            self.weights = np.array(self.final_model["weights"])
+            self.feature_columns = self.final_model["feature_columns"]
+            self.risk_columns = self.final_model["risk_columns"]
+
+            print("✅ Model loaded successfully!")
             print(f"   Features: {len(self.feature_columns)}")
             print(f"   Risks: {len(self.risk_columns)}")
-            print(f"   Accuracy: {self.final_model['test_performance']['average_accuracy']*100:.1f}%")
-            
+            print(
+                f"   Accuracy: {self.final_model['test_performance']['average_accuracy']*100:.1f}%"
+            )
+
         except Exception as e:
             print(f"❌ Error loading models: {e}")
             raise
+
     
     def _get_mlp_predictions(self, X_data):
         """Helper function for MLP predictions"""
@@ -318,77 +328,69 @@ class PulseOxRiskPredictor:
         """Return the list of risk names predicted by the model"""
         return self.risk_columns.copy()
     def predict_with_clinical_rules(self, patient_data):
-     """Enhanced prediction with clinical emergency rules"""
-    # Get original prediction
-     result = self.predict_with_triage(patient_data)
     
-    # Extract key vitals
-     if isinstance(patient_data, list) and len(patient_data) >= 5:
-        age = patient_data[0]
-        spo2 = patient_data[1]
-        hr = patient_data[2]
-        temp = patient_data[4]
-        
-        # CRITICAL EMERGENCY RULES
-        emergency_flags = []
-        
-        # 1. Hypoxia emergency
-        if spo2 < 90:
-            emergency_flags.append(f"🚨 CRITICAL HYPOXIA: SpO2 {spo2:.1f}%")
-            # Force high respiratory risks
-            result['probabilities']['Asthma_Exacerbation_Risk'] = max(
-                result['probabilities']['Asthma_Exacerbation_Risk'], 0.8)
-            result['probabilities']['COPD_Risk'] = max(
-                result['probabilities']['COPD_Risk'], 0.8)
-            result['probabilities']['Pneumonia_Risk'] = max(
-                result['probabilities']['Pneumonia_Risk'], 0.7)
-        
-        # 2. Tachycardia emergency
-        if hr > 130:
-            emergency_flags.append(f"🚨 SEVERE TACHYCARDIA: HR {hr:.1f} bpm")
-            # Force high cardiac/stress risks
-            result['probabilities']['COVID_Like_Risk'] = max(
-                result['probabilities']['COVID_Like_Risk'], 0.6)
-        
-        # 3. Fever emergency
-        if temp > 39 or temp < 35.5:
-            emergency_flags.append(f"🚨 CRITICAL TEMPERATURE: {temp:.1f}°C")
-            result['probabilities']['COVID_Like_Risk'] = max(
-                result['probabilities']['COVID_Like_Risk'], 0.7)
-            result['probabilities']['Pneumonia_Risk'] = max(
-                result['probabilities']['Pneumonia_Risk'], 0.6)
-        
-        # 4. Elderly with critical vitals
-        if age > 65 and (spo2 < 92 or hr > 120 or temp > 38.5):
-            emergency_flags.append(f"🚨 HIGH-RISK ELDERLY PATIENT")
-        
-        # Update risk levels based on new probabilities
-        for risk, prob in result['probabilities'].items():
-            if prob < 0.2:
-                result['risk_levels'][risk] = 'Low'
-            elif prob < 0.4:
-                result['risk_levels'][risk] = 'Medium'
-            elif prob < 0.6:
-                result['risk_levels'][risk] = 'High'
-            else:
-                result['risk_levels'][risk] = 'Critical'
-        
-        # OVERRIDE TRIAGE if emergency flags
-        if emergency_flags:
-            result['triage'] = {
-                'level': 'RED',
-                'category': 'Critical',
-                'recommended_action': 'IMMEDIATE EMERGENCY INTERVENTION REQUIRED'
-            }
-            result['clinical_emergency_flags'] = emergency_flags
-            result['recommendations'] = [
-                "🆘 EMERGENCY: Call code team immediately",
-                "Administer supplemental oxygen",
-                "Prepare for emergency department transfer",
-                "Monitor vital signs continuously"
-            ]
-            
-            # Force high overall score
-            result['overall_emergency_score'] = 0.85
-     
-     return result
+        """Enhanced prediction with clinical emergency rules"""
+
+        # Get original prediction
+        result = self.predict_with_triage(patient_data)
+
+        # Extract key vitals
+        if isinstance(patient_data, list) and len(patient_data) >= 5:
+            age = patient_data[0]
+            spo2 = patient_data[1]
+            hr = patient_data[2]
+            temp = patient_data[4]
+
+            emergency_flags = []
+
+            # Hypoxia emergency
+            if spo2 < 90:
+                emergency_flags.append(f"🚨 CRITICAL HYPOXIA: SpO2 {spo2:.1f}%")
+                result["probabilities"]["Asthma_Exacerbation_Risk"] = max(
+                    result["probabilities"]["Asthma_Exacerbation_Risk"], 0.8
+                )
+                result["probabilities"]["COPD_Risk"] = max(
+                    result["probabilities"]["COPD_Risk"], 0.8
+                )
+                result["probabilities"]["Pneumonia_Risk"] = max(
+                    result["probabilities"]["Pneumonia_Risk"], 0.7
+                )
+
+            # Tachycardia
+            if hr > 130:
+                emergency_flags.append(f"🚨 SEVERE TACHYCARDIA: HR {hr:.1f} bpm")
+                result["probabilities"]["COVID_Like_Risk"] = max(
+                    result["probabilities"]["COVID_Like_Risk"], 0.6
+                )
+
+            # Temperature
+            if temp > 39 or temp < 35.5:
+                emergency_flags.append(f"🚨 CRITICAL TEMPERATURE: {temp:.1f}°C")
+                result["probabilities"]["COVID_Like_Risk"] = max(
+                    result["probabilities"]["COVID_Like_Risk"], 0.7
+                )
+                result["probabilities"]["Pneumonia_Risk"] = max(
+                    result["probabilities"]["Pneumonia_Risk"], 0.6
+                )
+
+            # Elderly high risk
+            if age > 65 and (spo2 < 92 or hr > 120 or temp > 38.5):
+                emergency_flags.append("🚨 HIGH-RISK ELDERLY PATIENT")
+
+            # Override triage
+            if emergency_flags:
+                result["triage"] = {
+                    "level": "RED",
+                    "category": "Critical",
+                    "recommended_action": "IMMEDIATE EMERGENCY INTERVENTION REQUIRED",
+                }
+                result["clinical_emergency_flags"] = emergency_flags
+                result["recommendations"] = [
+                    "🆘 EMERGENCY: Call code team immediately",
+                    "Administer supplemental oxygen"
+                    "Prepare for emergency department transfer",
+                    "Monitor vital signs continuously",
+                ]
+                result["overall_emergency_score"] = 0.85
+
+        return result
