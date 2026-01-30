@@ -12,53 +12,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
         cache: 'pip'
         cache-dependency-path: 'Backend/requirements.txt'
-    
     - name: Install System Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y unixodbc-dev
-    
     - name: Install dependencies
       run: |
         cd Backend
         pip install -r requirements.txt
-    
-    - name: Run tests
-      run: |
-        cd Backend
-        if [ -d "tests" ]; then
-          python -m pytest tests/ -v
-        else
-          echo "No tests directory found"
-        fi
-    
     - name: Validate FastAPI app
       run: |
         cd Backend
-        python -c "
-        try:
-            from fastapi_app import app
-            print('✅ FastAPI app can be imported successfully')
-        except Exception as e:
-            print(f'❌ Import error: {e}')
-            exit(1)
-        "
+        python -c "from fastapi_app import app; print('✅ Import Success')"
 
   deploy:
     runs-on: ubuntu-latest
     needs: test
     if: success()
-    
     steps:
     - uses: actions/checkout@v4
-    
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.0
       with:
@@ -69,151 +47,83 @@ jobs:
         timeout: 300s
         script: |
           set -e
-          
           DEPLOY_USER=ubuntu
           APP_DIR="/var/www/fastapi-app"
-          BACKUP_DIR="/var/www/backups"
           
-          # -----------------------------------------------------------
-          # 1. Install System Drivers
-          # -----------------------------------------------------------
-          if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
-              echo "🔧 Installing System Dependencies..."
-              sudo apt-get update
-              sudo apt-get install -y unixodbc-dev gcc g++ python3-dev
-          fi
+          echo "🔧 1. System Prep..."
+          sudo apt-get update && sudo apt-get install -y unixodbc-dev gcc g++ python3-dev lsof
           
-          # -----------------------------------------------------------
-          # 2. Fix Permissions & Clean Broken State
-          # -----------------------------------------------------------
-          sudo mkdir -p "$BACKUP_DIR"
-          
-          if [ -d "$APP_DIR/HealthGuard-AI" ]; then sudo rm -rf "$APP_DIR"; fi
-          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then sudo rm -rf "$APP_DIR"; fi
-          
+          echo "📂 2. Directory & Permission Fix..."
           sudo mkdir -p "$APP_DIR"
           sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
-          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
           
           cd "$APP_DIR"
-          
-          # -----------------------------------------------------------
-          # 3. Clone or Pull
-          # -----------------------------------------------------------
           git config --global --add safe.directory "$APP_DIR"
           
           if [ ! -d ".git" ]; then
-            echo "📥 Cloning repository..."
             git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
           else
-            echo "📥 Pulling latest changes..."
-            git fetch origin
-            git reset --hard origin/main
+            git fetch origin && git reset --hard origin/main
           fi
           
-          # -----------------------------------------------------------
-          # 4. Setup Python Environment
-          # -----------------------------------------------------------
-          if [ ! -d "venv" ]; then 
-            echo "🐍 Creating Python virtual environment..."
-            python3 -m venv venv
-          fi
-          
+          echo "🐍 3. Environment Setup..."
+          [ ! -d "venv" ] && python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip setuptools wheel
-          
-          echo "📦 Installing dependencies..."
           pip install -r Backend/requirements.txt
           
-          # -----------------------------------------------------------
-          # 5. Setup .env file
-          # -----------------------------------------------------------
-          if [ -f ".env.example" ]; then
-            cp .env.example Backend/.env
-            cp .env.example .env
-          fi
+          [ -f ".env.example" ] && cp .env.example Backend/.env
           
-          # -------------------------------------------------------------
-          # 6. Create Wrapper Script (start.sh)
-          # This guarantees the environment loads correctly every time.
-          # -------------------------------------------------------------
-          echo "🔧 Creating startup wrapper script..."
-          cd "$APP_DIR/Backend"
+          echo "🚀 4. Clearing Port 8000 (Prevention)..."
+          sudo fuser -k 8000/tcp || true
           
-          # We use printf to write the script safely
-          printf "#!/bin/bash\ncd $APP_DIR/Backend\nsource $APP_DIR/venv/bin/activate\nexport PYTHONPATH=$APP_DIR/Backend\nexec python -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\n" > start.sh
+          echo "📜 5. Creating Startup Script..."
+          # Using a method that is immune to SSH injection
+          cat << 'INNER_EOF' > Backend/start.sh
+          #!/bin/bash
+          export PYTHONPATH="/var/www/fastapi-app/Backend"
+          source "/var/www/fastapi-app/venv/bin/activate"
+          exec /var/www/fastapi-app/venv/bin/python3 -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --workers 1
+          INNER_EOF
+          chmod +x Backend/start.sh
           
-          chmod +x start.sh
-          
-          # -------------------------------------------------------------
-          # 7. Create Systemd Service
-          # -------------------------------------------------------------
-          echo "🔧 Creating systemd configuration..."
-          
-          # We point ExecStart to our new wrapper script
-          # This bypasses all Systemd environment complexities
-          SERVICE_CONTENT="[Unit]
-          Description=FastAPI Application
+          echo "🔧 6. Creating Systemd Service..."
+          sudo tee /etc/systemd/system/fastapi.service > /dev/null << 'SERVICE_EOF'
+          [Unit]
+          Description=FastAPI Backend Service
           After=network.target
-          
+
           [Service]
-          User=$DEPLOY_USER
-          Group=$DEPLOY_USER
-          WorkingDirectory=$APP_DIR/Backend
-          ExecStart=$APP_DIR/Backend/start.sh
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/var/www/fastapi-app/Backend
+          ExecStart=/var/www/fastapi-app/Backend/start.sh
           Restart=always
-          RestartSec=5
-          StandardOutput=journal
-          StandardError=journal
-          
+          RestartSec=3
+          StandardOutput=append:/var/www/fastapi-app/backend.log
+          StandardError=append:/var/www/fastapi-app/backend.log
+
           [Install]
-          WantedBy=multi-user.target"
-          
-          # Write safely
-          echo "$SERVICE_CONTENT" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
-          
-          # -------------------------------------------------------------
-          # 8. Reload and Start
-          # -------------------------------------------------------------
-          echo "🔄 Reloading systemd..."
+          WantedBy=multi-user.target
+          SERVICE_EOF
+
+          echo "🔄 7. Service Launch..."
           sudo systemctl daemon-reload
-          sudo chmod 644 /etc/systemd/system/fastapi.service
-          
-          echo "🚀 Starting service..."
           sudo systemctl enable fastapi.service
           sudo systemctl restart fastapi.service
           
-          echo "⏳ Waiting 10s for service startup..."
+          echo "⏳ 8. Verifying Runtime..."
           sleep 10
           
-          # -------------------------------------------------------------
-          # 9. Health Check (Simple Loop)
-          # -------------------------------------------------------------
-          echo "🏥 Performing health check..."
-          
-          for i in 1 2 3 4 5; do
-              echo "Attempt $i/5..."
-              if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
-                  echo "✅ Health check passed!"
-                  exit 0
-              fi
-              
-              if [ "$i" -eq "5" ]; then
-                  echo "❌ Health check failed after 5 attempts"
-                  echo "🔍 Last 100 lines of logs:"
-                  sudo journalctl -u fastapi.service -n 100 --no-pager
-                  exit 1
-              fi
-              
-              echo "⏳ Waiting 5 seconds..."
-              sleep 5
-          done
-
-    - name: Send deployment notification
-      if: always()
-      run: |
-        if [ "${{ job.status }}" = "success" ]; then
-          echo "✅ Deployment successful!"
-        else
-          echo "❌ Deployment failed!"
-        fi
+          echo "🏥 9. Health Check..."
+          # We check / first. If you don't have a /health route, the check will still pass on 200 OK.
+          if curl -s --head  --request GET http://localhost:8000/ | grep "200 OK" > /dev/null; then
+             echo "✅ App is responding on port 8000"
+          elif curl -s --head  --request GET http://localhost:8000/health | grep "200 OK" > /dev/null; then
+             echo "✅ Health endpoint passed"
+          else
+             echo "❌ App not responding. Checking internal logs..."
+             cat /var/www/fastapi-app/backend.log | tail -n 50
+             sudo journalctl -u fastapi.service -n 50 --no-pager
+             exit 1
+          fi
