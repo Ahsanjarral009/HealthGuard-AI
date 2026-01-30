@@ -22,7 +22,7 @@ jobs:
         cache-dependency-path: 'Backend/requirements.txt'
     
     # -----------------------------------------------------------
-    # ✅ NEW STEP: Install Linux Drivers for pyodbc
+    # ✅ FIX 1: Install System Drivers (Required for pyodbc)
     # -----------------------------------------------------------
     - name: Install System Dependencies
       run: |
@@ -43,6 +43,9 @@ jobs:
           echo "No tests directory found"
         fi
     
+    # -----------------------------------------------------------
+    # ✅ FIX 2: Validate 'fastapi_app' (not main)
+    # -----------------------------------------------------------
     - name: Validate FastAPI app
       run: |
         cd Backend
@@ -70,7 +73,10 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script_stop: true
-        timeout: 300
+        # -------------------------------------------------------
+        # ✅ FIX 3: ADDED 's' TO TIMEOUT (300 -> 300s)
+        # -------------------------------------------------------
+        timeout: 300s
         script: |
           set -e
           
@@ -80,8 +86,7 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           SRC_DIR="$APP_DIR/Backend"
           
-          # Ensure system dependencies are installed on the SERVER too
-          # (Optional: Only needed if your EC2 doesn't have them yet)
+          # Install ODBC drivers on the SERVER (EC2) too
           if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
               echo "🔧 Installing ODBC drivers on Server..."
               sudo apt-get update
