@@ -4,14 +4,12 @@ on:
   push:
     branches: [ main ]
     paths:
-      # CORRECT PATHS based on your actual structure:
-      - 'Backend FastAPI/Smart_Disease_presiction_System/**'  # Note: "presiction" not "prediction"
+      - 'Backend/**'
       - '.github/workflows/fastapi-cd.yml'
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
     steps:
     - uses: actions/checkout@v4
     
@@ -20,16 +18,21 @@ jobs:
       with:
         python-version: '3.11'
         cache: 'pip'
-        cache-dependency-path: 'Backend FastAPI/Smart_Disease_presiction_System/requirements.txt'  # Updated
+        cache-dependency-path: 'Backend/requirements.txt'
+    
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unixodbc-dev
     
     - name: Install dependencies
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         pip install -r requirements.txt
     
     - name: Run tests
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         if [ -d "tests" ]; then
           python -m pytest tests/ -v
         else
@@ -38,10 +41,10 @@ jobs:
     
     - name: Validate FastAPI app
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         python -c "
         try:
-            from main import app
+            from fastapi_app import app
             print('✅ FastAPI app can be imported successfully')
         except Exception as e:
             print(f'❌ Import error: {e}')
@@ -63,92 +66,169 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script_stop: true
-        timeout: 300
+        timeout: 300s
         script: |
           set -e
           
           DEPLOY_USER=ubuntu
           APP_DIR="/var/www/fastapi-app"
           BACKUP_DIR="/var/www/backups"
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          # UPDATED PATH:
-          SRC_DIR="$APP_DIR/Backend FastAPI/Smart_Disease_presiction_System"  # Updated
           
+          # -----------------------------------------------------------
+          # 1. Install System Drivers (Added gcc/python3-dev as requested)
+          # -----------------------------------------------------------
+          if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
+              echo "🔧 Installing System Dependencies..."
+              sudo apt-get update
+              sudo apt-get install -y unixodbc-dev gcc g++ python3-dev
+          fi
+          
+          # -----------------------------------------------------------
+          # 2. Fix Permissions & Clean Broken State
+          # -----------------------------------------------------------
           sudo mkdir -p "$BACKUP_DIR"
+          
+          # Clean broken/nested folders
+          if [ -d "$APP_DIR/HealthGuard-AI" ]; then sudo rm -rf "$APP_DIR"; fi
+          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then sudo rm -rf "$APP_DIR"; fi
+          
           sudo mkdir -p "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
           
           cd "$APP_DIR"
           
-          # If repo not cloned, clone it
+          # -----------------------------------------------------------
+          # 3. Clone or Pull
+          # -----------------------------------------------------------
+          git config --global --add safe.directory "$APP_DIR"
+          
           if [ ! -d ".git" ]; then
             echo "📥 Cloning repository..."
             git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
+          else
+            echo "📥 Pulling latest changes..."
+            git fetch origin
+            git reset --hard origin/main
           fi
           
-          git fetch origin
-          git reset --hard origin/main
-          
-          echo "📦 Backing up current application..."
-          sudo tar -czf "$BACKUP_DIR/app-backup-$TIMESTAMP.tar.gz" \
-            --exclude='venv' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            -C "$APP_DIR" .
-          
-          echo "📂 Copying backend files..."
-          rsync -av --delete \
-            --exclude='.env' \
-            --exclude='*.db' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            "$SRC_DIR/" "$APP_DIR/"
-          
-          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-            cp .env.example .env
-          fi
-          
-          echo "🔧 Setting up virtual environment..."
-          if [ ! -d "venv" ]; then
+          # -----------------------------------------------------------
+          # 4. Setup Python Environment
+          # -----------------------------------------------------------
+          if [ ! -d "venv" ]; then 
+            echo "🐍 Creating Python virtual environment..."
             python3 -m venv venv
           fi
           
           source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --upgrade pip setuptools wheel
           
-          echo "🔧 Creating systemd service..."
-          sudo tee /etc/systemd/system/fastapi.service > /dev/null <<EOF
-[Unit]
-Description=FastAPI Application
-After=network.target
-
-[Service]
-User=$DEPLOY_USER
-Group=www-data
-WorkingDirectory=$APP_DIR
-Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
+          echo "📦 Installing dependencies..."
+          pip install -r Backend/requirements.txt
+          
+          # -----------------------------------------------------------
+          # 5. Setup .env file
+          # -----------------------------------------------------------
+          echo "🔧 Setting up environment variables..."
+          if [ -f ".env.example" ]; then
+            cp .env.example Backend/.env
+            cp .env.example .env
+          fi
+          
+          # -------------------------------------------------------------
+          # 6. DRY RUN DIAGNOSTIC (Corruption Proof)
+          # -------------------------------------------------------------
+          echo "🕵️ STARTING DRY RUN DIAGNOSTIC..."
+          cd "$APP_DIR/Backend"
+          
+          # We write the diagnostic script safely using printf
+          printf "import sys\nimport os\nimport traceback\nprint(f'Python PATH: {sys.path}')\ntry:\n    sys.path.insert(0, os.getcwd())\n    from fastapi_app import app\n    print('✅ SUCCESS: App imported successfully!')\n    if hasattr(app, 'routes'):\n        print(f'✅ App has {len(app.routes)} routes')\nexcept Exception as e:\n    print(f'❌ CRITICAL ERROR: {e}')\n    traceback.print_exc()\n    sys.exit(1)\n" > diag.py
+          
+          # Run the script with the venv python
+          $APP_DIR/venv/bin/python3 diag.py
+          rm diag.py
+          
+          echo "   Dry run passed."
+          
+          # -------------------------------------------------------------
+          # 7. Create Systemd Service (Corruption Proof Method)
+          # -------------------------------------------------------------
+          echo "🔧 Creating systemd configuration..."
+          
+          # A. Create Environment File
+          # We use printf to avoid '<< EOF' corruption
+          sudo printf "PYTHONPATH=$APP_DIR/Backend\nPATH=$APP_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n" | sudo tee /etc/systemd/system/fastapi.env > /dev/null
+          
+          # Append actual .env contents if they exist
+          if [ -f "$APP_DIR/Backend/.env" ]; then
+             cat "$APP_DIR/Backend/.env" | sudo tee -a /etc/systemd/system/fastapi.env > /dev/null
+          fi
+          
+          # B. Create Service File
+          # Note: We use 'python -m uvicorn' to ensure path resolution works perfectly
+          SERVICE_CONTENT="[Unit]
+          Description=FastAPI Application
+          After=network.target
+          After=syslog.target
+          
+          [Service]
+          User=$DEPLOY_USER
+          Group=$DEPLOY_USER
+          WorkingDirectory=$APP_DIR/Backend
+          EnvironmentFile=/etc/systemd/system/fastapi.env
+          Environment=PYTHONUNBUFFERED=1
+          Environment=PYTHONPATH=$APP_DIR/Backend
+          ExecStart=$APP_DIR/venv/bin/python -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --log-level debug
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=fastapi
+          
+          [Install]
+          WantedBy=multi-user.target"
+          
+          # Write safely
+          echo "$SERVICE_CONTENT" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
+          
+          # -------------------------------------------------------------
+          # 8. Reload and Start
+          # -------------------------------------------------------------
+          echo "🔄 Reloading systemd..."
           sudo systemctl daemon-reload
+          sudo chmod 644 /etc/systemd/system/fastapi.service
+          
+          echo "🚀 Starting service..."
+          sudo systemctl enable fastapi.service
           sudo systemctl restart fastapi.service
           
-          sleep 5
+          echo "⏳ Waiting 10s for service startup..."
+          sleep 10
           
-          sudo systemctl status fastapi.service --no-pager | head -20
+          # -------------------------------------------------------------
+          # 9. Health Check with Retry Loop
+          # -------------------------------------------------------------
+          echo "🏥 Performing health check..."
+          MAX_RETRIES=5
+          RETRY_DELAY=5
           
-          if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
-            echo "✅ Health check passed"
-          else
-            echo "❌ Health check failed"
-            sudo journalctl -u fastapi.service -n 50 --no-pager
-            exit 1
-          fi
+          for i in \$(seq 1 \$MAX_RETRIES); do
+              echo "Attempt \$i/\$MAX_RETRIES..."
+              if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
+                  echo "✅ Health check passed!"
+                  exit 0
+              fi
+              
+              if [ \$i -eq \$MAX_RETRIES ]; then
+                  echo "❌ Health check failed after \$MAX_RETRIES attempts"
+                  echo "🔍 Last 100 lines of logs:"
+                  sudo journalctl -u fastapi.service -n 100 --no-pager
+                  exit 1
+              fi
+              
+              echo "⏳ Waiting \$RETRY_DELAY seconds before retry..."
+              sleep \$RETRY_DELAY
+          done
 
     - name: Send deployment notification
       if: always()
