@@ -2,11 +2,10 @@ name: Deploy FastAPI Backend
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main ]
     paths:
       - 'Backend/**'
       - '.github/workflows/fastapi-cd.yml'
-      workflow_dispatch:
 
 jobs:
   test:
