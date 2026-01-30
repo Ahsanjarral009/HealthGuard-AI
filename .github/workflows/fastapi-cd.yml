@@ -3,7 +3,9 @@ name: Deploy FastAPI Backend
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/fastapi-cd.yml'
 
 jobs:
   test:
@@ -66,292 +68,211 @@ jobs:
         script_stop: true
         timeout: 300s
         script: |
-          set -e
-          
-          DEPLOY_USER=ubuntu
-          APP_DIR="/var/www/fastapi-app"
-          BACKUP_DIR="/var/www/backups"
-          
-          echo "================================================"
-          echo "🚀 Starting FastAPI Deployment"
-          echo "================================================"
-          
-          # 1. Install System Drivers
-          echo "📦 Step 1: Checking system dependencies..."
-          if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
-              echo "🔧 Installing ODBC drivers..."
-              sudo apt-get update
-              sudo apt-get install -y unixodbc-dev
-          else
-              echo "✅ ODBC drivers already installed"
-          fi
-          
-          # 2. Fix Permissions & Clean Broken State
-          echo ""
-          echo "🧹 Step 2: Cleaning up old deployments..."
-          sudo mkdir -p "$BACKUP_DIR"
-          
-          # Clean nested/broken folders from previous runs
-          if [ -d "$APP_DIR/HealthGuard-AI" ]; then 
-              echo "⚠️  Found nested HealthGuard-AI directory, cleaning..."
-              sudo rm -rf "$APP_DIR"
-          fi
-          
-          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then 
-              echo "⚠️  Found corrupted app directory, cleaning..."
-              sudo rm -rf "$APP_DIR"
-          fi
-          
-          sudo mkdir -p "$APP_DIR"
-          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
-          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
-          
-          cd "$APP_DIR"
-          
-          # 3. Clone or Pull Latest Code
-          echo ""
-          echo "📥 Step 3: Fetching latest code..."
-          git config --global --add safe.directory "$APP_DIR"
-          
-          if [ ! -d ".git" ]; then
-            echo "📥 Cloning repository..."
-            git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
-          else
-            echo "🔄 Repository exists, pulling latest changes..."
-          fi
-          
-          git fetch origin
-          git reset --hard origin/main
-          echo "✅ Code updated to latest commit: $(git rev-parse --short HEAD)"
-          
-          # 4. Setup Python Environment
-          echo ""
-          echo "🐍 Step 4: Setting up Python environment..."
-          if [ ! -d "venv" ]; then 
-              echo "Creating new virtual environment..."
-              python3 -m venv venv
-          else
-              echo "✅ Virtual environment exists"
-          fi
-          
-          source venv/bin/activate
-          pip install --upgrade pip --quiet
-          pip install -r Backend/requirements.txt --quiet
-          echo "✅ Python dependencies installed"
-          
-          # 5. Setup Environment File
-          echo ""
-          echo "⚙️  Step 5: Configuring environment..."
-          if [ -f ".env.example" ]; then
-            echo "🔧 Setting up .env file..."
-            cp .env.example .env
-            cp .env.example Backend/.env
-            echo "✅ Environment files created"
-          elif [ ! -f "Backend/.env" ]; then
-            echo "⚠️  WARNING: No .env.example found and no existing .env file!"
-            echo "Creating minimal .env file..."
-            cat > Backend/.env << 'ENVEOF'
-# Minimal configuration - UPDATE THESE VALUES
-DATABASE_URL=sqlite:///./test.db
-SECRET_KEY=your-secret-key-here-change-this
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-ENVEOF
-            echo "⚠️  Please update Backend/.env with actual values!"
-          else
-            echo "✅ Using existing .env file"
-          fi
-          
-          # 6. Dry Run Diagnostic
-          echo ""
-          echo "🕵️  Step 6: Running diagnostic test..."
-          cd "$APP_DIR/Backend"
-          export PYTHONPATH=$APP_DIR/Backend
-          
-          # Create diagnostic script
-          cat > diag.py << 'DIAGEOF'
-import sys
+        set -e
+DEPLOY_USER=ubuntu
+APP_DIR="/var/www/fastapi-app"
+BACKUP_DIR="/var/www/backups"
+
+# 1. Install System Drivers
+if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
+    echo "🔧 Installing ODBC drivers..."
+    sudo apt-get update
+    sudo apt-get install -y unixodbc-dev gcc g++ python3-dev
+fi
+
+# 2. Fix Permissions & Clean Broken State
+sudo mkdir -p "$BACKUP_DIR"
+
+# Clean nested/broken folders from previous runs
+if [ -d "$APP_DIR/HealthGuard-AI" ]; then sudo rm -rf "$APP_DIR"; fi
+if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then sudo rm -rf "$APP_DIR"; fi
+
+sudo mkdir -p "$APP_DIR"
+sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
+sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
+
+cd "$APP_DIR"
+
+# 3. Clone or Pull
+git config --global --add safe.directory "$APP_DIR"
+
+if [ ! -d ".git" ]; then
+  echo "📥 Cloning repository..."
+  git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
+else
+  echo "📥 Pulling latest changes..."
+  git fetch origin
+  git reset --hard origin/main
+fi
+
+# 4. Setup Python Environment
+if [ ! -d "venv" ]; then 
+    echo "🐍 Creating Python virtual environment..."
+    python3 -m venv venv
+fi
+
+source venv/bin/activate
+pip install --upgrade pip setuptools wheel
+
+echo "📦 Installing dependencies..."
+pip install -r Backend/requirements.txt
+
+# 5. Setup .env file
+echo "🔧 Setting up environment variables..."
+if [ -f ".env.example" ]; then
+  cp .env.example Backend/.env
+  # Also copy to root for backup
+  cp .env.example .env
+fi
+
+# 6. Test Import with Full Environment
+echo "🕵️ Testing app import with environment..."
+cd "$APP_DIR/Backend"
+
+# Load environment variables for testing
+if [ -f ".env" ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Create comprehensive test script
+cat > test_import.py << 'EOF'
 import os
+import sys
+import traceback
+
+print(f"Python PATH: {sys.path}")
+print(f"Working directory: {os.getcwd()}")
+
 try:
+    # Add current directory to path
+    sys.path.insert(0, os.getcwd())
     from fastapi_app import app
     print('✅ SUCCESS: App imported successfully!')
-    print(f'   App title: {app.title if hasattr(app, "title") else "N/A"}')
+    
+    # Test if app has required attributes
+    if hasattr(app, 'routes'):
+        print(f'✅ App has {len(app.routes)} routes')
+    else:
+        print('⚠️ Warning: app.routes not found')
+        
 except Exception as e:
     print(f'❌ CRITICAL ERROR: {e}')
-    import traceback
     traceback.print_exc()
     sys.exit(1)
-DIAGEOF
-          
-          python3 diag.py
-          DIAG_RESULT=$?
-          rm diag.py
-          
-          if [ $DIAG_RESULT -ne 0 ]; then
-              echo "❌ Diagnostic test failed! Aborting deployment."
-              exit 1
-          fi
-          
-          echo "✅ Diagnostic test passed"
-          
-          # 7. Stop Existing Service and Free Port
-          echo ""
-          echo "🛑 Step 7: Stopping existing service..."
-          if sudo systemctl is-active --quiet fastapi.service; then
-              echo "Stopping fastapi.service..."
-              sudo systemctl stop fastapi.service
-              sleep 3
-          fi
-          
-          # Kill any process still using port 8000
-          if sudo lsof -i :8000 >/dev/null 2>&1; then
-              echo "⚠️  Port 8000 is still in use, forcing cleanup..."
-              sudo fuser -k 8000/tcp || true
-              sleep 2
-          fi
-          
-          echo "✅ Port 8000 is free"
-          
-          # 8. Create Systemd Service
-          echo ""
-          echo "🔧 Step 8: Creating systemd service..."
-          
-          sudo cat > /etc/systemd/system/fastapi.service << 'SERVICEEOF'
+EOF
+
+python3 test_import.py
+rm test_import.py
+
+# 7. Create Systemd Service with Environment File
+echo "🔧 Creating systemd service..."
+
+# Create environment file for systemd
+sudo tee /etc/systemd/system/fastapi.env > /dev/null << EOF
+PYTHONPATH=/var/www/fastapi-app/Backend
+PATH=/var/www/fastapi-app/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EOF
+
+# Also copy .env file to systemd accessible location
+if [ -f "$APP_DIR/Backend/.env" ]; then
+    sudo cp "$APP_DIR/Backend/.env" /etc/systemd/system/fastapi-app.env
+    # Load .env variables into systemd environment file
+    cat "$APP_DIR/Backend/.env" | sudo tee -a /etc/systemd/system/fastapi.env > /dev/null
+fi
+
+# Create the service file
+sudo tee /etc/systemd/system/fastapi.service > /dev/null << EOF
 [Unit]
-Description=FastAPI HealthGuard Application
+Description=FastAPI Application
 After=network.target
+After=syslog.target
 
 [Service]
-Type=simple
-User=ubuntu
-Group=www-data
-WorkingDirectory=/var/www/fastapi-app/Backend
-Environment="PATH=/var/www/fastapi-app/venv/bin"
-Environment="PYTHONPATH=/var/www/fastapi-app/Backend"
-EnvironmentFile=/var/www/fastapi-app/Backend/.env
-ExecStart=/var/www/fastapi-app/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --workers 1
+User=$DEPLOY_USER
+Group=$DEPLOY_USER
+WorkingDirectory=$APP_DIR/Backend
+
+# Environment file
+EnvironmentFile=/etc/systemd/system/fastapi.env
+
+# Debug environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=$APP_DIR/Backend
+
+# Explicit path to python executable
+ExecStart=$APP_DIR/venv/bin/python -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --log-level debug
+
+# Restart configuration
 Restart=always
 RestartSec=5
+
+# Process management
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=fastapi
 
+# Security
+NoNewPrivileges=true
+
 [Install]
 WantedBy=multi-user.target
-SERVICEEOF
-          
-          echo "✅ Service file created"
-          
-          # 9. Start Service
-          echo ""
-          echo "🚀 Step 9: Starting FastAPI service..."
-          sudo systemctl daemon-reload
-          sudo systemctl enable fastapi.service
-          sudo systemctl start fastapi.service
-          
-          # Wait for service to start
-          echo "⏳ Waiting for service to initialize..."
-          sleep 8
-          
-          # 10. Verify Deployment
-          echo ""
-          echo "🔍 Step 10: Verifying deployment..."
-          echo ""
-          echo "📄 Service File Content:"
-          echo "----------------------------------------"
-          cat /etc/systemd/system/fastapi.service
-          echo "----------------------------------------"
-          echo ""
-          
-          echo "📊 Service Status:"
-          echo "----------------------------------------"
-          sudo systemctl status fastapi.service --no-pager -l || true
-          echo "----------------------------------------"
-          echo ""
-          
-          echo "📋 Last 30 Log Lines:"
-          echo "----------------------------------------"
-          sudo journalctl -u fastapi.service -n 30 --no-pager
-          echo "----------------------------------------"
-          echo ""
-          
-          # Health check
-          echo "🏥 Running health check..."
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          HEALTH_CHECK_PASSED=false
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
-                  HEALTH_CHECK_PASSED=true
-                  break
-              else
-                  RETRY_COUNT=$((RETRY_COUNT + 1))
-                  if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                      echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying in 3s..."
-                      sleep 3
-                  fi
-              fi
-          done
-          
-          if [ "$HEALTH_CHECK_PASSED" = true ]; then
-              echo ""
-              echo "================================================"
-              echo "✅ DEPLOYMENT SUCCESSFUL!"
-              echo "================================================"
-              echo "🌐 API is running at: http://localhost:8000"
-              echo "📚 Docs available at: http://localhost:8000/docs"
-              echo "================================================"
-              exit 0
-          else
-              echo ""
-              echo "================================================"
-              echo "❌ DEPLOYMENT FAILED - Health Check Failed"
-              echo "================================================"
-              echo ""
-              echo "🔍 Full Diagnostic Information:"
-              echo "----------------------------------------"
-              
-              echo ""
-              echo "1️⃣  Service Status:"
-              sudo systemctl status fastapi.service --no-pager -l || true
-              
-              echo ""
-              echo "2️⃣  Last 100 Log Lines:"
-              sudo journalctl -u fastapi.service -n 100 --no-pager
-              
-              echo ""
-              echo "3️⃣  Port 8000 Status:"
-              sudo lsof -i :8000 || echo "No process listening on port 8000"
-              
-              echo ""
-              echo "4️⃣  Environment File:"
-              if [ -f /var/www/fastapi-app/Backend/.env ]; then
-                  echo "✅ .env file exists"
-                  echo "File size: $(wc -c < /var/www/fastapi-app/Backend/.env) bytes"
-              else
-                  echo "❌ .env file NOT found!"
-              fi
-              
-              echo ""
-              echo "5️⃣  Python Path Check:"
-              /var/www/fastapi-app/venv/bin/python3 -c "import sys; print('\n'.join(sys.path))"
-              
-              echo ""
-              echo "================================================"
-              exit 1
-          fi
+EOF
 
-    - name: Send deployment notification
+# 8. Reload and Start Service
+echo "🔄 Reloading systemd..."
+sudo systemctl daemon-reload
+
+echo "🔧 Setting permissions..."
+sudo chmod 644 /etc/systemd/system/fastapi.service
+sudo chmod 644 /etc/systemd/system/fastapi.env 2>/dev/null || true
+
+echo "🚀 Starting service..."
+sudo systemctl enable fastapi.service
+sudo systemctl restart fastapi.service
+
+echo "⏳ Waiting for service to start..."
+sleep 10
+
+# 9. Check Service Status
+echo "📊 Service status:"
+sudo systemctl status fastapi.service --no-pager
+
+# 10. Check Logs
+echo "📋 Recent logs:"
+sudo journalctl -u fastapi.service -n 50 --no-pager
+
+# 11. Health Check with Retry
+echo "🏥 Performing health check..."
+MAX_RETRIES=5
+RETRY_DELAY=5
+
+for i in $(seq 1 $MAX_RETRIES); do
+    echo "Attempt $i/$MAX_RETRIES..."
+    if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
+        echo "✅ Health check passed!"
+        break
+    fi
+    
+    if [ $i -eq $MAX_RETRIES ]; then
+        echo "❌ Health check failed after $MAX_RETRIES attempts"
+        echo "🔍 Last 100 lines of logs:"
+        sudo journalctl -u fastapi.service -n 100 --no-pager
+        exit 1
+    fi
+    
+    echo "⏳ Waiting $RETRY_DELAY seconds before retry..."
+    sleep $RETRY_DELAY
+done
+
+echo "🎉 Deployment completed successfully!"
+
+- name: Send deployment notification
       if: always()
       run: |
-        if [ "${{ job.status }}" == "success" ]; then
-          echo "================================================"
-          echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY!"
-          echo "================================================"
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ Deployment successful!"
         else
-          echo "================================================"
-          echo "❌ DEPLOYMENT FAILED!"
-          echo "================================================"
-          echo "Check the logs above for details"
+          echo "❌ Deployment failed!"
         fi
