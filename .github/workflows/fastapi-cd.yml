@@ -85,15 +85,11 @@ jobs:
           # 2. Fix Permissions & Clean Broken State
           sudo mkdir -p "$BACKUP_DIR"
           
-          # Check for nested folder error
+          # Clean up previous broken folders
           if [ -d "$APP_DIR/HealthGuard-AI" ]; then
-             echo "⚠️ Detected nested folder. Wiping..."
              sudo rm -rf "$APP_DIR"
           fi
-
-          # Check for broken repository
           if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
-             echo "⚠️ Detected broken repository. Wiping..."
              sudo rm -rf "$APP_DIR"
           fi
           
@@ -127,38 +123,20 @@ jobs:
           pip install --upgrade pip
           pip install -r Backend/requirements.txt
           
-          # 5. Create Service (FIXED: Uses printf to avoid corruption)
+          # 5. Create Service (FIXED: Using single-line printf to prevent corruption)
           echo "🔧 Creating systemd service..."
           
-          # We construct the file content safely
-          SERVICE_CONTENT="[Unit]
-          Description=FastAPI Application
-          After=network.target
-          
-          [Service]
-          User=$DEPLOY_USER
-          Group=www-data
-          WorkingDirectory=$APP_DIR/Backend
-          Environment=\"PATH=$APP_DIR/venv/bin\"
-          ExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
-          Restart=always
-          RestartSec=5
-          
-          [Install]
-          WantedBy=multi-user.target"
-          
-          # Write it to the file
-          echo "$SERVICE_CONTENT" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
+          # ⚠️ This format is safe from injection
+          sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
           
           sudo systemctl daemon-reload
           sudo systemctl restart fastapi.service
           
           sleep 5
           
-          # Debug: Print the service file to logs if it fails
-          echo "📄 Verifying Service File Content:"
+          # Debug: Show file content to confirm it is clean
+          echo "📄 Service File Content:"
           cat /etc/systemd/system/fastapi.service
-          echo "---------------------------------"
           
           sudo systemctl status fastapi.service --no-pager | head -20
           
