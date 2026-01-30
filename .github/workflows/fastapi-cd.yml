@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       # CORRECT PATHS based on your actual structure:
-      - 'Backend FastAPI/Smart_Disease_presiction_System/**'  # Note: "presiction" not "prediction"
+      - 'Backend/**'  # Note: "presiction" not "prediction"
       - '.github/workflows/fastapi-cd.yml'
 
 jobs:
