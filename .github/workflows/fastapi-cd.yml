@@ -4,8 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      # CORRECT PATHS based on your actual structure:
-      - 'Backend/**'  # Note: "presiction" not "prediction"
+      - 'Backend/**' 
       - '.github/workflows/fastapi-cd.yml'
 
 jobs:
@@ -20,25 +19,26 @@ jobs:
       with:
         python-version: '3.11'
         cache: 'pip'
-        cache-dependency-path: 'Backend FastAPI/Smart_Disease_presiction_System/requirements.txt'  # Updated
+        # FIXED: Path matches your image
+        cache-dependency-path: 'Backend/requirements.txt' 
     
     - name: Install dependencies
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         pip install -r requirements.txt
     
     - name: Run tests
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         if [ -d "tests" ]; then
           python -m pytest tests/ -v
         else
-          echo "No tests directory found"
+          echo "No tests directory found, skipping..."
         fi
     
     - name: Validate FastAPI app
       run: |
-        cd "Backend FastAPI/Smart_Disease_presiction_System"  # Updated path
+        cd Backend
         python -c "
         try:
             from main import app
@@ -71,15 +71,16 @@ jobs:
           APP_DIR="/var/www/fastapi-app"
           BACKUP_DIR="/var/www/backups"
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          # UPDATED PATH:
-          SRC_DIR="$APP_DIR/Backend FastAPI/Smart_Disease_presiction_System"  # Updated
+          
+          # FIXED: Updated to match your new folder structure
+          SRC_DIR="$APP_DIR/Backend" 
           
           sudo mkdir -p "$BACKUP_DIR"
           sudo mkdir -p "$APP_DIR"
           
           cd "$APP_DIR"
           
-          # If repo not cloned, clone it
+          # Clone or Fetch
           if [ ! -d ".git" ]; then
             echo "📥 Cloning repository..."
             git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
@@ -95,7 +96,8 @@ jobs:
             --exclude='*.pyc' \
             -C "$APP_DIR" .
           
-          echo "📂 Copying backend files..."
+          echo "📂 Copying backend files to root..."
+          # This moves files from Backend/ to the root of the app dir
           rsync -av --delete \
             --exclude='.env' \
             --exclude='*.db' \
@@ -116,31 +118,14 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           
-          echo "🔧 Creating systemd service..."
-          sudo tee /etc/systemd/system/fastapi.service > /dev/null <<EOF
-[Unit]
-Description=FastAPI Application
-After=network.target
-
-[Service]
-User=$DEPLOY_USER
-Group=www-data
-WorkingDirectory=$APP_DIR
-Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
+          echo "🔧 Restarting Service..."
+          # Assuming service is already created. 
+          # If you need to recreate the service file every time, keep your previous EOF block here.
+          
           sudo systemctl daemon-reload
           sudo systemctl restart fastapi.service
           
           sleep 5
-          
-          sudo systemctl status fastapi.service --no-pager | head -20
           
           if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
             echo "✅ Health check passed"
