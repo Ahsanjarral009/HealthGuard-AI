@@ -21,9 +21,6 @@ jobs:
         cache: 'pip'
         cache-dependency-path: 'Backend/requirements.txt'
     
-    # -----------------------------------------------------------
-    # ✅ FIX 1: Install System Drivers (Required for pyodbc)
-    # -----------------------------------------------------------
     - name: Install System Dependencies
       run: |
         sudo apt-get update
@@ -43,9 +40,6 @@ jobs:
           echo "No tests directory found"
         fi
     
-    # -----------------------------------------------------------
-    # ✅ FIX 2: Validate 'fastapi_app' (not main)
-    # -----------------------------------------------------------
     - name: Validate FastAPI app
       run: |
         cd Backend
@@ -73,9 +67,6 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script_stop: true
-        # -------------------------------------------------------
-        # ✅ FIX 3: ADDED 's' TO TIMEOUT (300 -> 300s)
-        # -------------------------------------------------------
         timeout: 300s
         script: |
           set -e
@@ -86,25 +77,39 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           SRC_DIR="$APP_DIR/Backend"
           
-          # Install ODBC drivers on the SERVER (EC2) too
+          # Install drivers if missing
           if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
               echo "🔧 Installing ODBC drivers on Server..."
               sudo apt-get update
               sudo apt-get install -y unixodbc-dev
           fi
           
+          # Create directories
           sudo mkdir -p "$BACKUP_DIR"
           sudo mkdir -p "$APP_DIR"
           
+          # -------------------------------------------------------
+          # ✅ CRITICAL FIX: Give 'ubuntu' user permission to write
+          # -------------------------------------------------------
+          echo "🔑 Fixing permissions..."
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
+          sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$BACKUP_DIR"
+          
           cd "$APP_DIR"
           
+          # Fix for "dubious ownership" error in Git
+          git config --global --add safe.directory "$APP_DIR"
+          
           if [ ! -d ".git" ]; then
+            echo "📥 Cloning repository..."
             git clone https://github.com/Ahsanjarral009/HealthGuard-AI.git .
           fi
           
+          echo "🔄 Fetching updates..."
           git fetch origin
           git reset --hard origin/main
           
+          # Sync files
           rsync -av --delete \
             --exclude='.env' \
             --exclude='*.db' \
