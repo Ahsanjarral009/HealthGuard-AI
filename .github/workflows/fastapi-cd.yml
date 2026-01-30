@@ -73,7 +73,6 @@ jobs:
           DEPLOY_USER=ubuntu
           APP_DIR="/var/www/fastapi-app"
           BACKUP_DIR="/var/www/backups"
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
           # 1. Install System Drivers
           if ! dpkg -s unixodbc-dev >/dev/null 2>&1; then
@@ -85,13 +84,9 @@ jobs:
           # 2. Fix Permissions & Clean Broken State
           sudo mkdir -p "$BACKUP_DIR"
           
-          # Clean up previous broken folders
-          if [ -d "$APP_DIR/HealthGuard-AI" ]; then
-             sudo rm -rf "$APP_DIR"
-          fi
-          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
-             sudo rm -rf "$APP_DIR"
-          fi
+          # Clean nested/broken folders from previous runs
+          if [ -d "$APP_DIR/HealthGuard-AI" ]; then sudo rm -rf "$APP_DIR"; fi
+          if [ -d "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then sudo rm -rf "$APP_DIR"; fi
           
           sudo mkdir -p "$APP_DIR"
           sudo chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
@@ -111,22 +106,49 @@ jobs:
           git reset --hard origin/main
           
           # 4. Setup Python Environment
-          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-            cp .env.example .env
-          fi
-          
-          if [ ! -d "venv" ]; then
-            python3 -m venv venv
-          fi
-          
+          if [ ! -d "venv" ]; then python3 -m venv venv; fi
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r Backend/requirements.txt
           
-          # 5. Create Service (FIXED: Using single-line printf to prevent corruption)
+          # -------------------------------------------------------------
+          # ✅ FIX 1: Ensure .env is inside Backend folder
+          # -------------------------------------------------------------
+          if [ -f ".env.example" ]; then
+            echo "🔧 Setting up .env file..."
+            cp .env.example .env
+            cp .env.example Backend/.env
+          fi
+          
+          # -------------------------------------------------------------
+          # ✅ FIX 2: DRY RUN - Print Real Errors to Console
+          # -------------------------------------------------------------
+          echo "🕵️ STARTING DRY RUN DIAGNOSTIC..."
+          echo "   This will try to start your app for 5 seconds to catch crashes."
+          
+          cd "$APP_DIR/Backend"
+          export PYTHONPATH=$APP_DIR/Backend
+          
+          # Try to import the app manually. If this fails, we see the specific error.
+          python3 -c "
+          import sys
+          import os
+          try:
+              print('   Attempting to import fastapi_app...')
+              from fastapi_app import app
+              print('   ✅ SUCCESS: App imported successfully!')
+          except Exception as e:
+              print(f'   ❌ CRITICAL ERROR: {e}')
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          "
+          echo "   Dry run passed. Proceeding to Service Start..."
+          
+          # 5. Create Service
           echo "🔧 Creating systemd service..."
           
-          # ⚠️ This format is safe from injection
+          # Safe printf to avoid file corruption
           sudo printf "[Unit]\nDescription=FastAPI Application\nAfter=network.target\n\n[Service]\nUser=$DEPLOY_USER\nGroup=www-data\nWorkingDirectory=$APP_DIR/Backend\nEnvironment=\"PATH=$APP_DIR/venv/bin\"\nExecStart=$APP_DIR/venv/bin/uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
           
           sudo systemctl daemon-reload
@@ -134,16 +156,12 @@ jobs:
           
           sleep 5
           
-          # Debug: Show file content to confirm it is clean
-          echo "📄 Service File Content:"
-          cat /etc/systemd/system/fastapi.service
-          
           sudo systemctl status fastapi.service --no-pager | head -20
           
           if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
             echo "✅ Health check passed"
           else
-            echo "❌ Health check failed"
+            echo "❌ Health check failed - Fetching logs..."
             sudo journalctl -u fastapi.service -n 50 --no-pager
             exit 1
           fi
