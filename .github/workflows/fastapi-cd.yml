@@ -134,56 +134,42 @@ jobs:
           fi
           
           # -------------------------------------------------------------
-          # 6. DRY RUN DIAGNOSTIC
+          # 6. Create Wrapper Script (start.sh)
+          # This guarantees the environment loads correctly every time.
           # -------------------------------------------------------------
-          echo "🕵️ STARTING DRY RUN DIAGNOSTIC..."
+          echo "🔧 Creating startup wrapper script..."
           cd "$APP_DIR/Backend"
           
-          # Write diagnostic script safely
-          printf "import sys\nimport os\nimport traceback\nprint(f'Python PATH: {sys.path}')\ntry:\n    sys.path.insert(0, os.getcwd())\n    from fastapi_app import app\n    print('✅ SUCCESS: App imported successfully!')\nexcept Exception as e:\n    print(f'❌ CRITICAL ERROR: {e}')\n    traceback.print_exc()\n    sys.exit(1)\n" > diag.py
+          # We use printf to write the script safely
+          printf "#!/bin/bash\ncd $APP_DIR/Backend\nsource $APP_DIR/venv/bin/activate\nexport PYTHONPATH=$APP_DIR/Backend\nexec python -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000\n" > start.sh
           
-          # Run diagnostic
-          $APP_DIR/venv/bin/python3 diag.py
-          rm diag.py
-          
-          echo "   Dry run passed."
+          chmod +x start.sh
           
           # -------------------------------------------------------------
           # 7. Create Systemd Service
           # -------------------------------------------------------------
           echo "🔧 Creating systemd configuration..."
           
-          # A. Create Environment File
-          sudo printf "PYTHONPATH=$APP_DIR/Backend\nPATH=$APP_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n" | sudo tee /etc/systemd/system/fastapi.env > /dev/null
-          
-          if [ -f "$APP_DIR/Backend/.env" ]; then
-             cat "$APP_DIR/Backend/.env" | sudo tee -a /etc/systemd/system/fastapi.env > /dev/null
-          fi
-          
-          # B. Create Service File
-          # IMPORTANT: We use $APP_DIR/venv/bin/python3 -m uvicorn to be 100% sure we use the venv
+          # We point ExecStart to our new wrapper script
+          # This bypasses all Systemd environment complexities
           SERVICE_CONTENT="[Unit]
           Description=FastAPI Application
           After=network.target
-          After=syslog.target
           
           [Service]
           User=$DEPLOY_USER
           Group=$DEPLOY_USER
           WorkingDirectory=$APP_DIR/Backend
-          EnvironmentFile=/etc/systemd/system/fastapi.env
-          Environment=PYTHONUNBUFFERED=1
-          Environment=PYTHONPATH=$APP_DIR/Backend
-          ExecStart=$APP_DIR/venv/bin/python3 -m uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
+          ExecStart=$APP_DIR/Backend/start.sh
           Restart=always
           RestartSec=5
           StandardOutput=journal
           StandardError=journal
-          SyslogIdentifier=fastapi
           
           [Install]
           WantedBy=multi-user.target"
           
+          # Write safely
           echo "$SERVICE_CONTENT" | sudo tee /etc/systemd/system/fastapi.service > /dev/null
           
           # -------------------------------------------------------------
@@ -200,15 +186,11 @@ jobs:
           echo "⏳ Waiting 10s for service startup..."
           sleep 10
           
-          # Check status immediately to catch early crashes
-          sudo systemctl status fastapi.service --no-pager
-          
           # -------------------------------------------------------------
-          # 9. Health Check (FIXED: Simple Loop)
+          # 9. Health Check (Simple Loop)
           # -------------------------------------------------------------
           echo "🏥 Performing health check..."
           
-          # FIX: We iterate over a simple string list to avoid SSH syntax errors with $(seq)
           for i in 1 2 3 4 5; do
               echo "Attempt $i/5..."
               if curl -f -s http://localhost:8000/health > /dev/null 2>&1; then
