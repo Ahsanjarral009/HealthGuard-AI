@@ -43,7 +43,7 @@ jobs:
           keyStorePassword: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      # 5. Upload to S3 (Versioned & Latest)
+     # 5. Upload to S3 (Versioned & Latest)
       - name: Deploy to S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -54,17 +54,17 @@ jobs:
           # The signing step outputs the path to the signed APK
           SIGNED_APK="${{ steps.sign_app.outputs.signedReleaseFile }}"
           
-          # Create a versioned name (e.g., app-run-123.apk)
+          # Create a versioned name (e.g., app-45.apk)
           VERSIONED_NAME="app-${{ github.run_number }}.apk"
 
-          # Install AWS CLI (It is pre-installed, but updating is good practice if needed, or just run commands)
-          # ubuntu-latest actually has AWS CLI pre-installed, so we can just run:
+          echo "🚀 Uploading Versioned Build (Archive)..."
+          # This saves it permanently as app-45.apk
+          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/releases/$VERSIONED_NAME" --acl public-read
           
-          echo "🚀 Uploading Versioned Build..."
-          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/releases/$VERSIONED_NAME"
-          
-          echo "🔄 Updating Latest Build..."
-          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/latest/app-release.apk"
+          echo "🔄 Updating Latest Build (Download Link)..."
+          # This overwrites app-release.apk so the link always delivers the newest version
+          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/latest/app-release.apk" --acl public-read
           
           echo "✅ Deployment Complete"
+          echo "History URL: https://$BUCKET.s3.${{ secrets.AWS_REGION }}.amazonaws.com/releases/$VERSIONED_NAME"
           echo "Download URL: https://$BUCKET.s3.${{ secrets.AWS_REGION }}.amazonaws.com/latest/app-release.apk"
