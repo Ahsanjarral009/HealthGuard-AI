@@ -3,7 +3,7 @@ name: Android Build & Deploy
 on:
   push:
     branches:
-      - 'android-deployment'  # This is your specific separate branch
+      - 'android-deployment'  
     paths:
       - 'Frontend Android/**' # Only runs if you change Android code
 
