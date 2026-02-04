@@ -44,24 +44,27 @@ jobs:
           buildToolsVersion: "34.0.0"  # <--- ADD THIS LINE
      # 5. Upload to S3 (Versioned & Latest)
       - name: Deploy to S3
+        # FIX 1: Reset working directory to Root so paths work correctly
+        working-directory: .
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           BUCKET: ${{ secrets.ANDROID_S3_BUCKET }}
         run: |
-          # The signing step outputs the path to the signed APK
-          SIGNED_APK="${{ steps.sign_app.outputs.signedReleaseFile }}"
+          # FIX 2: Use 'signedFile' (ilharp usually uses this output name)
+          SIGNED_APK="${{ steps.sign_app.outputs.signedFile }}"
           
-          # Create a versioned name (e.g., app-45.apk)
+          # Debugging: Print the path to be 100% sure
+          echo "🔍 Looking for file at: $SIGNED_APK"
+          ls -l "$SIGNED_APK"
+          
           VERSIONED_NAME="app-${{ github.run_number }}.apk"
 
           echo "🚀 Uploading Versioned Build (Archive)..."
-          # This saves it permanently as app-45.apk
           aws s3 cp "$SIGNED_APK" "s3://$BUCKET/releases/$VERSIONED_NAME" --acl public-read
           
           echo "🔄 Updating Latest Build (Download Link)..."
-          # This overwrites app-release.apk so the link always delivers the newest version
           aws s3 cp "$SIGNED_APK" "s3://$BUCKET/latest/app-release.apk" --acl public-read
           
           echo "✅ Deployment Complete"
