@@ -1,7 +1,6 @@
 name: Android Build & Deploy
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - 'android-deployment'  # This is your specific separate branch
