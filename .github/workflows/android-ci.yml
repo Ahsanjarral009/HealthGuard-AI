@@ -31,17 +31,23 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      # 4. Sign the APK (Updated Action)
+      # 4. Sign the APK (Corrected Inputs)
       - name: Sign APK
         id: sign_app
-        uses: ilharp/sign-android-release@v1  # <--- CHANGED FROM r0adkll
+        uses: ilharp/sign-android-release@v1
         with:
-          releaseDirectory: "Frontend Android/app/build/outputs/apk/release"
-          signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
-          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          # NAME CHANGED: releaseDirectory -> releaseDir
+          releaseDir: "Frontend Android/app/build/outputs/apk/release"
+          
+          # NAME CHANGED: signingKeyBase64 -> signingKey
+          signingKey: ${{ secrets.ANDROID_SIGNING_KEY }}
+          
+          # NAME CHANGED: alias -> keyAlias
+          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          
+          # These two remain the same
           keyStorePassword: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
      # 5. Upload to S3 (Versioned & Latest)
       - name: Deploy to S3
         env:
