@@ -31,11 +31,10 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      # 4. Sign the APK (Automated)
-      # This saves you from complex gradle config changes
+     # 4. Sign the APK (Updated Action)
       - name: Sign APK
         id: sign_app
-        uses: r0adkll/sign-android-release@v1
+        uses: ilharp/sign-android-release@v1  # <--- CHANGED FROM r0adkll
         with:
           releaseDirectory: "Frontend Android/app/build/outputs/apk/release"
           signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
