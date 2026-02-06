@@ -44,7 +44,6 @@ jobs:
           buildToolsVersion: "34.0.0"  # <--- ADD THIS LINE
      # 5. Upload to S3 (Versioned & Latest)
       - name: Deploy to S3
-        # FIX 1: Reset working directory to Root so paths work correctly
         working-directory: .
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -52,21 +51,16 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           BUCKET: ${{ secrets.ANDROID_S3_BUCKET }}
         run: |
-          # FIX 2: Use 'signedFile' (ilharp usually uses this output name)
           SIGNED_APK="${{ steps.sign_app.outputs.signedFile }}"
-          
-          # Debugging: Print the path to be 100% sure
-          echo "🔍 Looking for file at: $SIGNED_APK"
-          ls -l "$SIGNED_APK"
-          
           VERSIONED_NAME="app-${{ github.run_number }}.apk"
 
-          echo "🚀 Uploading Versioned Build (Archive)..."
-          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/releases/$VERSIONED_NAME" --acl public-read
+          echo "🚀 Uploading Versioned Build..."
+          # NOTICE: No --acl flag here!
+          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/releases/$VERSIONED_NAME"
           
-          echo "🔄 Updating Latest Build (Download Link)..."
-          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/latest/app-release.apk" --acl public-read
+          echo "🔄 Updating Latest Build..."
+          # NOTICE: No --acl flag here either!
+          aws s3 cp "$SIGNED_APK" "s3://$BUCKET/latest/app-release.apk"
           
           echo "✅ Deployment Complete"
-          echo "History URL: https://$BUCKET.s3.${{ secrets.AWS_REGION }}.amazonaws.com/releases/$VERSIONED_NAME"
           echo "Download URL: https://$BUCKET.s3.${{ secrets.AWS_REGION }}.amazonaws.com/latest/app-release.apk"
