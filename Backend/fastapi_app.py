@@ -823,5 +823,6 @@ if __name__ == "__main__":
     )
     
     print("API is running at http://localhost:8000")
+    print("Documentation available at http://localhost:8000/docs")
 
   
