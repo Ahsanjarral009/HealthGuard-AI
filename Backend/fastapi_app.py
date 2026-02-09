@@ -822,5 +822,6 @@ if __name__ == "__main__":
         log_level="info"
     )
     
+    print("API is running at http://localhost:8000")
 
   
