@@ -75,11 +75,12 @@ jobs:
           APP_NAME="healthguard-prod"
           IMAGE="cosmicahsan/healthguard-ai:latest"
 
-          echo "🚀 Pulling latest image..."
+          echo " Pulling latest image..."
           sudo docker pull $IMAGE
 
-          echo "🛑 Removing old container..."
+          echo "Removing old container..."
           sudo docker rm -f $APP_NAME || true
+
 
           echo "▶ Starting new container..."
           sudo docker run -d \
