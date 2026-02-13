@@ -821,5 +821,8 @@ if __name__ == "__main__":
         reload=True,  # Disable in production
         log_level="info"
     )
+
+    print("API is running at http://localhost:8000")
+    print("Documentation available at http://localhost:8000/docs")
     
     
